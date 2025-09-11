@@ -1,0 +1,180 @@
+
+<!DOCTYPE html>
+<html lang="pt">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Resultados Ténis — Temporada</title>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
+      h1 { margin: 0 0 8px; }
+      .muted { color: #666; margin-top: 0; }
+      .toolbar { display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)) 1fr; gap: 8px; margin: 16px 0; }
+      select, input { padding: 8px; border: 1px solid #ccc; border-radius: 8px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+      th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; font-size: 14px; }
+      th { position: sticky; top: 0; background: #fafafa; }
+      .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #ddd; font-size: 12px; }
+      .footer { margin-top: 24px; font-size: 12px; color: #666; }
+      .hint { font-size: 12px; color: #666; margin-top: 4px; }
+    </style>
+  </head>
+  <body>
+    <h1>Resultados de Ténis</h1>
+    <p class="muted">Temporada atual • Atualize os dados semanalmente</p>
+
+    <div class="toolbar">
+      <select id="fAno"><option value="">Ano</option></select>
+      <select id="fTour"><option value="">Tour</option></select>
+      <select id="fNivel"><option value="">Nível</option></select>
+      <select id="fSup"><option value="">Superfície</option></select>
+      <select id="fTorneio"><option value="">Torneio</option></select>
+      <input id="q" type="search" placeholder="Pesquisar jogador, local, rodada…" />
+    </div>
+    <div class="hint">Dica: para usar Google Sheets em vez de ficheiro, publique a folha como CSV e substitua a variável <code>CSV_URL</code> abaixo.</div>
+
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Tour</th>
+          <th>Nível</th>
+          <th>Torneio</th>
+          <th>Local</th>
+          <th>Superfície</th>
+          <th>Rodada</th>
+          <th>Jogador A</th>
+          <th>Jogador B</th>
+          <th>Placar</th>
+          <th>Vencedor</th>
+          <th>Obs</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div class="footer">Feito com HTML + JS puro. Fonte de dados: CSV. — Troque para um link público do Google Sheets quando quiser.</div>
+
+    <script>
+      // === CONFIG ===
+      // Use 'resultados.csv' quando fizer upload dos dois ficheiros (index.html e resultados.csv).
+      // Para Google Sheets: Ficheiro → Partilhar → Publicar na Web → selecionar "CSV" e cole o link abaixo.
+      const CSV_URL = "resultados.csv";
+
+      let rows = [];
+      const els = {
+        ano: document.getElementById('fAno'),
+        tour: document.getElementById('fTour'),
+        nivel: document.getElementById('fNivel'),
+        sup: document.getElementById('fSup'),
+        torneio: document.getElementById('fTorneio'),
+        q: document.getElementById('q'),
+        tbody: document.querySelector('#tbl tbody')
+      };
+
+      function uniq(values) {
+        return Array.from(new Set(values.filter(Boolean))).sort();
+      }
+
+      function yearOf(dateStr) {
+        // espera AAAA-MM-DD
+        return (dateStr || '').slice(0,4);
+      }
+
+      function populateFilters() {
+        const anos = uniq(rows.map(r => yearOf(r.data)));
+        const tours = uniq(rows.map(r => r.tour));
+        const niveis = uniq(rows.map(r => r["nível"]));
+        const sups = uniq(rows.map(r => r["superfície"]));
+        const torneios = uniq(rows.map(r => r.torneio));
+
+        function fillSelect(sel, values, labelFn = v => v) {
+          sel.innerHTML = '<option value=""></option>' + values.map(v => `<option value="${v}">${labelFn(v)}</option>`).join('');
+          // Add placeholder text back
+          if (sel.id === 'fAno') sel.options[0].text = 'Ano';
+          if (sel.id === 'fTour') sel.options[0].text = 'Tour';
+          if (sel.id === 'fNivel') sel.options[0].text = 'Nível';
+          if (sel.id === 'fSup') sel.options[0].text = 'Superfície';
+          if (sel.id === 'fTorneio') sel.options[0].text = 'Torneio';
+        }
+
+        fillSelect(els.ano, anos);
+        fillSelect(els.tour, tours);
+        fillSelect(els.nivel, niveis);
+        fillSelect(els.sup, sups);
+        fillSelect(els.torneio, torneios);
+      }
+
+      function matchesFilters(r) {
+        const q = els.q.value.trim().toLowerCase();
+        const ano = els.ano.value;
+        const tour = els.tour.value;
+        const nivel = els.nivel.value;
+        const sup = els.sup.value;
+        const torneio = els.torneio.value;
+
+        if (ano && yearOf(r.data) !== ano) return false;
+        if (tour && r.tour !== tour) return false;
+        if (nivel && r["nível"] !== nivel) return false;
+        if (sup && r["superfície"] !== sup) return false;
+        if (torneio && r.torneio !== torneio) return false;
+
+        if (q) {
+          const hay = [
+            r.torneio, r.local, r.rodada, r.jogador_a, r.jogador_b, r.vencedor, r.tour, r["nível"], r["superfície"], r.data
+          ].join(' ').toLowerCase();
+          return hay.includes(q);
+        }
+        return true;
+      }
+
+      function render() {
+        const filtered = rows.filter(matchesFilters);
+        els.tbody.innerHTML = filtered.map(r => `
+          <tr>
+            <td>${r.data || ""}</td>
+            <td><span class="chip">${r.tour || ""}</span></td>
+            <td>${r["nível"] || ""}</td>
+            <td>${r.torneio || ""}</td>
+            <td>${r.local || ""}</td>
+            <td>${r["superfície"] || ""}</td>
+            <td>${r.rodada || ""}</td>
+            <td>${r.jogador_a || ""}</td>
+            <td>${r.jogador_b || ""}</td>
+            <td>${r.placar || ""}</td>
+            <td>${r.vencedor || ""}</td>
+            <td>${r.obs || ""}</td>
+          </tr>
+        `).join('');
+      }
+
+      function attachEvents() {
+        [els.ano, els.tour, els.nivel, els.sup, els.torneio, els.q].forEach(el => {
+          el.addEventListener('input', render);
+          el.addEventListener('change', render);
+        });
+      }
+
+      function loadCSV() {
+        Papa.parse(CSV_URL, {
+          download: true,
+          header: true,
+          skipEmptyLines: true,
+          complete: (results) => {
+            rows = results.data;
+            populateFilters();
+            render();
+          },
+          error: (err) => {
+            console.error("Erro ao carregar CSV:", err);
+            els.tbody.innerHTML = `<tr><td colspan="12">Não foi possível carregar o CSV. Verifique o caminho em <code>CSV_URL</code>.</td></tr>`;
+          }
+        });
+      }
+
+      attachEvents();
+      loadCSV();
+    </script>
+  </body>
+</html>
