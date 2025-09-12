@@ -1,0 +1,255 @@
+
+<!DOCTYPE html>
+<html lang="pt">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Resultados Ténis — Temporada</title>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
+      h1 { margin: 0 0 4px; }
+      .muted { color: #666; margin-top: 0; }
+      .toolbar { display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)) 1fr; gap: 8px; margin: 16px 0; }
+      select, input, button { padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; }
+      button { cursor: pointer; }
+      table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+      th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; font-size: 14px; }
+      th { position: sticky; top: 0; background: #fafafa; }
+      .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #ddd; font-size: 12px; }
+      .footer { margin-top: 24px; font-size: 12px; color: #666; display:flex; gap:12px; align-items:center; flex-wrap:wrap;}
+      .hint { font-size: 12px; color: #666; margin-top: 4px; }
+      .actions { display:flex; gap:8px; align-items:center; margin: 8px 0 4px; }
+      .pill { font-size: 12px; padding: 2px 8px; border:1px solid #ddd; border-radius:999px; }
+    </style>
+  </head>
+  <body>
+    <h1>Resultados de Ténis</h1>
+    <p class="muted">Temporada atual • Atualize os dados semanalmente</p>
+
+    <div class="toolbar">
+      <select id="fAno"><option value="">Ano</option></select>
+      <select id="fTour"><option value="">Tour</option></select>
+      <select id="fNivel"><option value="">Nível</option></select>
+      <select id="fSup"><option value="">Superfície</option></select>
+      <select id="fTorneio"><option value="">Torneio</option></select>
+      <input id="q" type="search" placeholder="Pesquisar jogador, local, rodada…" />
+    </div>
+
+    <div class="actions">
+      <button id="btnCsv">⬇️ Download CSV normalizado</button>
+      <span class="pill" id="lastUpdate"></span>
+    </div>
+    <div class="hint">Dica: se o CSV tiver nomes colados (ex.: <code>JuanIgnacioZAMORA</code>), o site corrige na visualização e no CSV exportado.</div>
+
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Tour</th>
+          <th>Nível</th>
+          <th>Torneio</th>
+          <th>Local</th>
+          <th>Superfície</th>
+          <th>Rodada</th>
+          <th>Jogador A</th>
+          <th>Jogador B</th>
+          <th>Placar</th>
+          <th>Vencedor</th>
+          <th>Obs</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div class="footer">
+      <span>Feito com HTML + JS puro. Fonte de dados: CSV.</span>
+      <span>Para usar Google Sheets: publique como CSV e troque a constante <code>CSV_URL</code>.</span>
+    </div>
+
+    <script>
+      // === CONFIG ===
+      const CSV_URL = "resultados.csv";
+
+      // Dicionário opcional de overrides: { "original": "nome desejado" }
+      const NAME_OVERRIDES = {
+        "NicolasVILLALON VALDES (CHI) [1]": "Nicolas VILLALON VALDES (CHI) [1]",
+        "MateoDEL PINO (ARG) [10]": "Mateo DEL PINO (ARG) [10]",
+        "Benjamin IgnacioTORRES FERNANDEZ (CHI) [16]": "Benjamin Ignacio TORRES FERNANDEZ (CHI) [16]",
+        "Francisco TomasGESCHWIND (ARG) (WC)": "Francisco Tomas GESCHWIND (ARG) (WC)",
+        "Hernando JoseESCURRA ISNARDI (PAR) [9]": "Hernando Jose ESCURRA ISNARDI (PAR) [9]",
+        "Joao VitorSCRAMIN DO LAGO (BRA) [14]": "Joao Vitor SCRAMIN DO LAGO (BRA) [14]",
+        "NicolasHOLLENDER (ARG)": "Nicolas HOLLENDER (ARG)"
+      };
+
+      const PARTICLES = ["DE","DEL","DELA","DA","DOS","DAS","DO","DI","DU","LA","LE","LO","VAN","VON","DER","DEN"];
+
+      function normalizeName(name) {
+        if (!name) return name;
+        // Separate suffixes like (ARG), [1], (WC)
+        const suffixes = [...name.matchAll(/(\(.*?\)|\[[^\]]*\])/g)].map(m => m[0]);
+        let base = name.replace(/(\(.*?\)|\[[^\]]*\])/g, "").trim();
+        base = base.replace(/\s+/g, " ");
+
+        // If exact override exists, use it
+        if (NAME_OVERRIDES[name]) {
+          return NAME_OVERRIDES[name];
+        }
+
+        // Insert space before ALL-CAPS surname glued to given names: "JuanIgnacioZAMORA" -> "JuanIgnacio ZAMORA"
+        base = base.replace(/([a-záéíóúñü]+)([A-ZÁÉÍÓÚÑÜ]{2,})/g, "$1 $2");
+
+        // Multi-given-names common fixes
+        base = base.replace(/\b(Juan)\s*(Ignacio)\s*([A-ZÁÉÍÓÚÑÜ]{2,})/g, "$1 $2 $3");
+        base = base.replace(/\b(Benjamin)\s*(Ignacio)\s*([A-ZÁÉÍÓÚÑÜ]{2,})/g, "$1 $2 $3");
+        base = base.replace(/\b(Francisco)\s*(Tomas)\s*([A-ZÁÉÍÓÚÑÜ]{2,})/g, "$1 $2 $3");
+        base = base.replace(/\b(Hernando)\s*(Jose)\s*([A-ZÁÉÍÓÚÑÜ]{2,})/g, "$1 $2 $3");
+        base = base.replace(/\b(Joao)\s*(Vitor)\s*([A-ZÁÉÍÓÚÑÜ]{2,})/g, "$1 $2 $3");
+
+        // Ensure particles are spaced: DELPINO -> DEL PINO
+        for (const part of PARTICLES.sort((a,b)=>b.length-a.length)) {
+          const re = new RegExp(`\\b${part}([A-ZÁÉÍÓÚÑÜ]+)\\b`, "g");
+          base = base.replace(re, `${part} $1`);
+        }
+
+        base = base.replace(/\s+/g, " ").trim();
+        if (suffixes.length) base += " " + suffixes.join(" ");
+        return base.trim();
+      }
+
+      let rows = [];
+      let rowsDisplay = [];
+      const els = {
+        ano: document.getElementById('fAno'),
+        tour: document.getElementById('fTour'),
+        nivel: document.getElementById('fNivel'),
+        sup: document.getElementById('fSup'),
+        torneio: document.getElementById('fTorneio'),
+        q: document.getElementById('q'),
+        tbody: document.querySelector('#tbl tbody'),
+        lastUpdate: document.getElementById('lastUpdate'),
+        btnCsv: document.getElementById('btnCsv')
+      };
+
+      function uniq(values) {
+        return Array.from(new Set(values.filter(Boolean))).sort();
+      }
+      function yearOf(dateStr) { return (dateStr || '').slice(0,4); }
+
+      function populateFilters() {
+        const anos = uniq(rows.map(r => yearOf(r.data)));
+        const tours = uniq(rows.map(r => r.tour));
+        const niveis = uniq(rows.map(r => r["nível"]));
+        const sups = uniq(rows.map(r => r["superfície"]));
+        const torneios = uniq(rows.map(r => r.torneio));
+        function fillSelect(sel, values, labelFn = v => v) {
+          sel.innerHTML = '<option value=""></option>' + values.map(v => `<option value="${v}">${labelFn(v)}</option>`).join('');
+          if (sel.id === 'fAno') sel.options[0].text = 'Ano';
+          if (sel.id === 'fTour') sel.options[0].text = 'Tour';
+          if (sel.id === 'fNivel') sel.options[0].text = 'Nível';
+          if (sel.id === 'fSup') sel.options[0].text = 'Superfície';
+          if (sel.id === 'fTorneio') sel.options[0].text = 'Torneio';
+        }
+        fillSelect(els.ano, anos);
+        fillSelect(els.tour, tours);
+        fillSelect(els.nivel, niveis);
+        fillSelect(els.sup, sups);
+        fillSelect(els.torneio, torneios);
+      }
+
+      function toDisplayRow(r) {
+        return {
+          ...r,
+          d_jogador_a: normalizeName(r.jogador_a),
+          d_jogador_b: normalizeName(r.jogador_b),
+          d_vencedor: normalizeName(r.vencedor),
+        };
+      }
+
+      function matchesFilters(r) {
+        const q = els.q.value.trim().toLowerCase();
+        const ano = els.ano.value, tour = els.tour.value, nivel = els.nivel.value, sup = els.sup.value, torneio = els.torneio.value;
+        if (ano && yearOf(r.data) !== ano) return false;
+        if (tour && r.tour !== tour) return false;
+        if (nivel && r["nível"] !== nivel) return false;
+        if (sup && r["superfície"] !== sup) return false;
+        if (torneio && r.torneio !== torneio) return false;
+        if (q) {
+          const hay = [r.torneio, r.local, r.rodada, r.d_jogador_a, r.d_jogador_b, r.d_vencedor, r.tour, r["nível"], r["superfície"], r.data].join(' ').toLowerCase();
+          return hay.includes(q);
+        }
+        return true;
+      }
+
+      function render() {
+        const filtered = rowsDisplay.filter(matchesFilters);
+        els.tbody.innerHTML = filtered.map(r => `
+          <tr>
+            <td>${r.data || ""}</td>
+            <td><span class="chip">${r.tour || ""}</span></td>
+            <td>${r["nível"] || ""}</td>
+            <td>${r.torneio || ""}</td>
+            <td>${r.local || ""}</td>
+            <td>${r["superfície"] || ""}</td>
+            <td>${r.rodada || ""}</td>
+            <td>${r.d_jogador_a || ""}</td>
+            <td>${r.d_jogador_b || ""}</td>
+            <td>${r.placar || ""}</td>
+            <td>${r.d_vencedor || ""}</td>
+            <td>${r.obs || ""}</td>
+          </tr>
+        `).join('');
+      }
+
+      function attachEvents() {
+        [els.ano, els.tour, els.nivel, els.sup, els.torneio, els.q].forEach(el => {
+          el.addEventListener('input', render);
+          el.addEventListener('change', render);
+        });
+        els.btnCsv.addEventListener('click', downloadNormalizedCsv);
+      }
+
+      function loadCSV() {
+        Papa.parse(CSV_URL, {
+          download: true,
+          header: true,
+          skipEmptyLines: true,
+          complete: (results) => {
+            rows = results.data;
+            rowsDisplay = rows.map(toDisplayRow);
+            populateFilters();
+            render();
+            els.lastUpdate.textContent = "Atualizado: " + new Date().toLocaleString();
+          },
+          error: (err) => {
+            console.error("Erro ao carregar CSV:", err);
+            els.tbody.innerHTML = `<tr><td colspan="12">Não foi possível carregar o CSV. Verifique o caminho em <code>CSV_URL</code>.</td></tr>`;
+          }
+        });
+      }
+
+      function downloadNormalizedCsv() {
+        // Build a CSV where the name fields are normalized
+        const normalized = rows.map((r) => ({
+          ...r,
+          jogador_a: normalizeName(r.jogador_a),
+          jogador_b: normalizeName(r.jogador_b),
+          vencedor: normalizeName(r.vencedor),
+        }));
+        const csv = Papa.unparse(normalized);
+        const blob = new Blob([csv], {type: "text/csv;charset=utf-8;"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = "resultados.csv";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      attachEvents();
+      loadCSV();
+    </script>
+  </body>
+</html>
