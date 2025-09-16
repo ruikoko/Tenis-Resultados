@@ -1,160 +1,115 @@
 
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Ténis • Resultados (sem cache)</title>
-    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-    <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
-      .toolbar { display: grid; grid-template-columns: repeat(6, minmax(140px, 1fr)); gap: 8px; margin: 16px 0; }
-      select, input, button { padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; }
-      table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-      th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; font-size: 14px; }
-      th { position: sticky; top: 0; background: #fafafa; }
-      .pill { font-size: 12px; padding: 2px 8px; border:1px solid #ddd; border-radius:999px; margin-left:8px; }
-      .chip { display:inline-block; padding:2px 8px; border:1px solid #ddd; border-radius:999px; font-size:12px; }
-    </style>
-  </head>
-  <body>
-    <h1>Resultados de Ténis</h1>
-    <div class="toolbar">
-      <select id="fObs"><option value="">Fase (Main/Qualy)</option></select>
-      <input id="q" type="search" placeholder="Pesquisar…" />
-      <button id="btnCsv">⬇️ Download CSV normalizado</button>
-      <span class="pill" id="last"></span>
-      <span class="pill" id="total"></span>
-      <a class="pill" href="index_debug.html">🔎 Debug</a>
-    </div>
+<head>
+  <meta charset="utf-8">
+  <title>Resultados de Ténis</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 24px; }
+    h1 { margin: 0 0 12px; }
+    .bar { display:flex; gap:12px; align-items:center; margin: 12px 0 20px; }
+    input, select { padding:6px 8px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 6px 8px; font-size: 14px; }
+    th { background: #f5f5f5; position: sticky; top: 0; }
+    tr:nth-child(even){ background:#fafafa; }
+    .pill { padding:2px 6px; border-radius: 12px; font-size: 12px; }
+    .review { background:#fff3cd; border:1px solid #ffe08a; }
+    .ok { background:#e7f7ef; border:1px solid #b8ead2; }
+    #status { font-size: 13px; color:#555; }
+  </style>
+</head>
+<body>
+  <h1>Resultados de Ténis</h1>
 
-    <table id="tbl">
-      <thead><tr>
-        <th>Data</th><th>Tour</th><th>Nível</th><th>Torneio</th><th>Local</th><th>Superfície</th>
-        <th>Rodada</th><th>Jogador A</th><th>Jogador B</th><th>Placar</th><th>Vencedor</th><th>Obs</th>
-      </tr></thead>
-      <tbody></tbody>
-    </table>
+  <div class="bar">
+    <label>Filtro torneio:
+      <input id="f-torneio" placeholder="ex: Mar del Plata">
+    </label>
+    <label>Filtro jogador:
+      <input id="f-jogador" placeholder="ex: Nicolas">
+    </label>
+    <span id="status">A carregar…</span>
+  </div>
 
-    <script>
-      const CSV_URL = "resultados_2025w36.csv";
+  <table id="tabela">
+    <thead>
+      <tr>
+        <th>Data</th>
+        <th>Tour</th>
+        <th>Nível</th>
+        <th>Torneio</th>
+        <th>Local</th>
+        <th>Superfície</th>
+        <th>Ronda</th>
+        <th>Vencedor</th>
+        <th>Derrotado</th>
+        <th>Placar</th>
+        <th>Revisar</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
 
-const PARTICLES = ["DE","DEL","DELA","DA","DOS","DAS","DO","DI","DU","LA","LE","LO","VAN","VON","DER","DEN"];
-const NAME_OVERRIDES = {
-  "Daniel DU TRA DA SILVA": "Daniel DUTRA DA SILVA",
-  "Felipe DE DI OS": "Felipe DE DIOS",
-  "Joao Vitor SCRAMIN DO LA GO": "Joao Vitor SCRAMIN DO LAGO",
-  "Juan Ignacio CENTURION DE L VALLE": "Juan Ignacio CENTURION DEL VALLE",
-  "Nicolas GARCIA LO NGO": "Nicolas GARCIA LONGO",
-  "Wilson LE ITE": "Wilson LEITE",
-  "Mateo DE L PINO": "Mateo DEL PINO"
-};
+  <script>
+  const SRC = 'data/resultados_com_vencedor.json';
 
-function normalizeName(name) {
-  if (!name) return name;
-  if (NAME_OVERRIDES[name]) return NAME_OVERRIDES[name];
-  const suffixes = [...name.matchAll(/(\(.*?\)|\[[^\]]*\])/g)].map(m => m[0]);
-  let base = name.replace(/(\(.*?\)|\[[^\]]*\])/g, "").trim();
-  base = base.replace(/\s+/g, " ");
-  // Fix single-letter token splits
-  base = base.replace(/\bDU\s+TRA\b/gi, "DUTRA")
-             .replace(/\bDE\s+DI\s+OS\b/gi, "DE DIOS")
-             .replace(/\bDE\s+L\s+PINO\b/gi, "DEL PINO")
-             .replace(/\bDE\s+L\s+VALLE\b/gi, "DEL VALLE")
-             .replace(/\bDO\s+LA\s+GO\b/gi, "DO LAGO")
-             .replace(/\bLO\s+NGO\b/gi, "LONGO")
-             .replace(/\bLE\s+ITE\b/gi, "LEITE");
-  // Insert space before uppercase surname glued to given name
-  base = base.replace(/([a-záéíóúñü]+)([A-ZÁÉÍÓÚÑÜ]{2,})/g, "$1 $2");
-  // Ensure particles glued are spaced
-  for (const part of [...PARTICLES].sort((a,b)=>b.length-a.length)) {
-    const re = new RegExp(`\\b${part}([A-ZÁÉÍÓÚÑÜ]+)\\b`, "g");
-    base = base.replace(re, `${part} $1`);
+  const $tbody = document.querySelector('#tabela tbody');
+  const $status = document.getElementById('status');
+  const $fTorneio = document.getElementById('f-torneio');
+  const $fJogador = document.getElementById('f-jogador');
+
+  let DATA = [];
+
+  function txt(x){ return x == null ? '' : String(x); }
+
+  function render(rows){
+    $tbody.innerHTML = '';
+    rows.forEach(j => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${txt(j.data)}</td>
+        <td>${txt(j.tour)}</td>
+        <td>${txt(j['nível']) || txt(j.nivel) || ''}</td>
+        <td>${txt(j.torneio)}</td>
+        <td>${txt(j.local)}</td>
+        <td>${txt(j['superfície']) || txt(j.superficie) || ''}</td>
+        <td>${txt(j.round || j.rodada)}</td>
+        <td>${txt(j.winner)}</td>
+        <td>${txt(j.loser)}</td>
+        <td>${txt(j.placar || j.score)}</td>
+        <td>
+          <span class="pill ${j.needs_review ? 'review':'ok'}">
+            ${j.needs_review ? '🔍 Rever' : 'OK'}
+          </span>
+        </td>`;
+      $tbody.appendChild(tr);
+    });
+    $status.textContent = `${rows.length} jogos`;
   }
-  base = base.replace(/\s+/g, " ").trim();
-  if (suffixes.length) base += " " + suffixes.join(" ");
-  return base;
-}
 
-function hasOneLetterToken(name) {
-  return !!(name && name.split(/\s+/).some(t => /^[A-ZÁÉÍÓÚÑÜ]$/.test(t)));
-}
-function hasSplitParticles(name) {
-  return /\bDE\s+L\b|\bLO\s+NGO\b|\bLE\s+ITE\b|\bDU\s+TRA\b|\bDE\s+DI\s+OS\b|\bDO\s+LA\s+GO\b/i.test(name || "");
-}
+  function applyFilters(){
+    const ft = $fTorneio.value.toLowerCase().trim();
+    const fj = $fJogador.value.toLowerCase().trim();
+    const out = DATA.filter(j => {
+      const okT = !ft || (txt(j.torneio).toLowerCase().includes(ft));
+      const okJ = !fj || (txt(j.winner).toLowerCase().includes(fj) || txt(j.loser).toLowerCase().includes(fj));
+      return okT && okJ;
+    });
+    render(out);
+  }
 
-      function bust(u) { return u + "?v=" + Date.now(); }
+  $fTorneio.addEventListener('input', applyFilters);
+  $fJogador.addEventListener('input', applyFilters);
 
-      let rows = [], rowsDisplay = [];
-      const els = {
-        obs: document.getElementById('fObs'),
-        q: document.getElementById('q'),
-        tbody: document.querySelector('#tbl tbody'),
-        last: document.getElementById('last'),
-        total: document.getElementById('total'),
-        btn: document.getElementById('btnCsv')
-      };
-
-      function toDisplayRow(r) {
-        return {
-          ...r,
-          d_jogador_a: normalizeName(r.jogador_a),
-          d_jogador_b: normalizeName(r.jogador_b),
-          d_vencedor: normalizeName(r.vencedor),
-        };
-      }
-
-      function render() {
-        const phase = els.obs.value;
-        const q = (els.q.value || "").toLowerCase();
-        const filtered = rowsDisplay.filter(r => {
-          if (phase && r.obs !== phase) return false;
-          const hay = [r.torneio, r.local, r.rodada, r.d_jogador_a, r.d_jogador_b, r.d_vencedor, r.data, r.obs].join(" ").toLowerCase();
-          return q ? hay.includes(q) : true;
-        });
-        els.tbody.innerHTML = filtered.map(r => `
-          <tr><td>\${r.data||""}</td><td><span class="chip">\${r.tour||""}</span></td><td>\${r["nível"]||""}</td>
-          <td>\${r.torneio||""}</td><td>\${r.local||""}</td><td>\${r["superfície"]||""}</td>
-          <td>\${r.rodada||""}</td><td>\${r.d_jogador_a||""}</td><td>\${r.d_jogador_b||""}</td>
-          <td>\${r.placar||""}</td><td>\${r.d_vencedor||""}</td><td>\${r.obs||""}</td></tr>
-        `).join("");
-        els.total.textContent = filtered.length + " jogos visíveis";
-      }
-
-      function populatePhase() {
-        const fases = [...new Set(rows.map(r => r.obs).filter(Boolean))].sort();
-        els.obs.innerHTML = '<option value="">Fase (Main/Qualy)</option>' + fases.map(f => `<option>\${f}</option>`).join("");
-      }
-
-      function loadCSV() {
-        Papa.parse(bust(CSV_URL), {
-          download: true, header: true, skipEmptyLines: true,
-          complete: (res) => {
-            rows = res.data;
-            rowsDisplay = rows.map(toDisplayRow);
-            populatePhase();
-            render();
-            els.last.textContent = "Atualizado: " + new Date().toLocaleString();
-          }
-        });
-      }
-
-      els.q.addEventListener('input', render);
-      els.obs.addEventListener('change', render);
-      els.btn.addEventListener('click', () => {
-        const normalized = rows.map(r => ({ ...r,
-          jogador_a: normalizeName(r.jogador_a),
-          jogador_b: normalizeName(r.jogador_b),
-          vencedor: normalizeName(r.vencedor)
-        }));
-        const csv = Papa.unparse(normalized);
-        const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = 'resultados.csv'; a.click();
-        URL.revokeObjectURL(url);
-      });
-
-      loadCSV();
-    </script>
-  </body>
+  fetch(SRC)
+    .then(r => {
+      if(!r.ok) throw new Error('Não encontrei o ficheiro de dados: ' + SRC);
+      return r.json();
+    })
+    .then(json => { DATA = json; render(DATA); })
+    .catch(err => { $status.textContent = err.message; });
+  </script>
+</body>
 </html>
